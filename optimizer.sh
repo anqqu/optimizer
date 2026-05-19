@@ -157,14 +157,45 @@ echo "CAKE отключён, используется fq + BBRv3"
 # === 4. Sysctl настройки (с обработкой ошибок) ===
 echo "Создаём оптимизированные sysctl настройки..."
 
+# === Автоподбор conntrack по RAM ===
+
+TOTAL_RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
+
+echo "RAM detected: ${TOTAL_RAM_MB}MB"
+
+if [ "$TOTAL_RAM_MB" -le 1024 ]; then
+
+    CONNTRACK_MAX=131072
+    CONNTRACK_BUCKETS=32768
+
+elif [ "$TOTAL_RAM_MB" -le 2048 ]; then
+
+    CONNTRACK_MAX=262144
+    CONNTRACK_BUCKETS=65536
+
+elif [ "$TOTAL_RAM_MB" -le 4096 ]; then
+
+    CONNTRACK_MAX=524288
+    CONNTRACK_BUCKETS=131072
+
+else
+
+    CONNTRACK_MAX=1048576
+    CONNTRACK_BUCKETS=262144
+
+fi
+
+echo "nf_conntrack_max=$CONNTRACK_MAX"
+echo "nf_conntrack_buckets=$CONNTRACK_BUCKETS"
+
 sudo tee /etc/sysctl.d/99-xanmod.conf > /dev/null <<EOF
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 net.ipv4.tcp_fastopen = 3
 
 # Conntrack (применятся после загрузки модуля)
-net.netfilter.nf_conntrack_max = 524288
-net.netfilter.nf_conntrack_buckets = 131072
+net.netfilter.nf_conntrack_max = $CONNTRACK_MAX
+net.netfilter.nf_conntrack_buckets = $CONNTRACK_BUCKETS
 net.netfilter.nf_conntrack_tcp_timeout_established = 7440
 net.netfilter.nf_conntrack_tcp_timeout_time_wait = 30
 
