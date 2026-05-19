@@ -85,7 +85,12 @@ sudo nft list ruleset
 Если вашему серверу не хватает оперативной памяти, выполните эту команду. Она безопасно настроит swap-файл с использованием `sudo` для каждого шага:
 
 ```bash
-sudo swapoff /swapfile 2>/dev/null || true && sudo fallocate -l 1G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile && sudo grep -qE '^/swapfile\s' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+sudo swapoff /swapfile 2>/dev/null || true && \
+sudo fallocate -l 1G /swapfile && \
+sudo chmod 600 /swapfile && \
+sudo mkswap /swapfile && \
+sudo swapon /swapfile && \
+{ sudo grep -qE '^/swapfile\s' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab; }
 ```
 
 <details>
