@@ -71,3 +71,19 @@ sudo nft list ruleset
 - Серверы VLESS Reality с большим количеством пользователей
 - Те, кто хочет максимальную сетевую производительность
 - Администраторы, желающие удобную и быструю оптимизацию
+---
+
+### 🛠️ Создание 1GB Swap в одну строку
+
+```bash
+swapoff /swapfile 2>/dev/null || true && fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && grep -qE '^/swapfile\s' /etc/fstab || echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
+```
+
+> [!NOTE]
+> **Как это работает:**
+> * `swapoff ...` — безопасно отключает старый swap.
+> * `fallocate -l 1G ...` — выделяет 1 ГБ места за одну секунду.
+> * `chmod 600 ...` — ограничивает доступ (чтение и запись только для `root`).
+> * `mkswap ...` — размечает и форматирует файл.
+> * `swapon ...` — мгновенно активирует swap.
+> * `grep -qE ...` — проверяет `/etc/fstab` с помощью регулярных выражений, исключая дубли при повторном запуске.
