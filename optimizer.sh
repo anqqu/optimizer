@@ -14,15 +14,42 @@ sudo apt update && sudo apt upgrade -y
 # Зависимости
 sudo apt install -y curl gnupg lsb-release ca-certificates dkms libelf-dev build-essential
 
-# === 1. Репозиторий XanMod ===
-echo "Добавляем репозиторий XanMod..."
+# === 1. Универсальный репозиторий XanMod (fix 404 + multi-OS) ===
+
+echo "Добавляем XanMod (универсальный режим)..."
+
 sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://dl.xanmod.org/archive.key | sudo gpg --dearmor -o /etc/apt/keyrings/xanmod-archive-keyring.gpg
 
-echo "deb [signed-by=/etc/apt/keyrings/xanmod-archive-keyring.gpg] http://deb.xanmod.org $(lsb_release -sc) main" | \
-sudo tee /etc/apt/sources.list.d/xanmod-release.list > /dev/null
+curl -fsSL https://dl.xanmod.org/archive.key | sudo gpg --dearmor -o /etc/apt/keyrings/xanmod.gpg
 
-sudo apt update
+REPO_URL="https://deb.xanmod.org"
+
+. /etc/os-release
+CODENAME="$VERSION_CODENAME"
+
+add_repo() {
+    echo "deb [signed-by=/etc/apt/keyrings/xanmod.gpg] $REPO_URL $1 main" | \
+    sudo tee /etc/apt/sources.list.d/xanmod.list > /dev/null
+}
+
+FALLBACKS="bookworm jammy bullseye focal"
+
+add_repo "$CODENAME"
+
+if ! sudo apt update >/dev/null 2>&1; then
+    echo "⚠️ Основной repo не работает, пробуем fallback..."
+
+    for i in $FALLBACKS; do
+        echo "→ пробуем $i"
+        sudo rm -f /etc/apt/sources.list.d/xanmod.list
+        add_repo "$i"
+
+        if sudo apt update >/dev/null 2>&1; then
+            echo "✅ Работает: $i"
+            break
+        fi
+    done
+fi
 
 # === 2. Определение версии CPU и установка ===
 echo "Определяем уровень CPU..."
