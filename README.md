@@ -23,13 +23,13 @@
 ### 🚀 Установка одной командой
 
 ```bash
-sudo curl -fsSL https://raw.githubusercontent.com/ВАШ_НИК/xanmod-optimizer/main/install-xanmod.sh | sudo bash
+sudo curl -fsSL https://raw.githubusercontent.com/anqqu/optimizer/main/optimizer.sh | sudo bash
 ```
 
 ### 📥 Скачать и запустить вручную
 
 ```bash
-sudo curl -fsSL -O https://raw.githubusercontent.com/ВАШ_НИК/xanmod-optimizer/main/install-xanmod.sh; \
+sudo curl -fsSL -O https://raw.githubusercontent.com/anqqu/optimizer/main/optimizer.sh; \
 sudo chmod +x install-xanmod.sh; \
 sudo sudo ./install-xanmod.sh
 ```
