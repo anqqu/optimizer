@@ -6,7 +6,7 @@
 
 set -e
 
-echo "=== XanMod Optimization Script (с отключением CAKE) ==="
+echo "=== Optimization Script (с отключением CAKE) ==="
 
 # Обновление
 sudo apt update && sudo apt upgrade -y
