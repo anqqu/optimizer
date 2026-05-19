@@ -62,14 +62,52 @@ chmod +x check_x86-64_psabi.sh
 
 CPU_LEVEL=$(./check_x86-64_psabi.sh | grep -o 'x86-64-v[0-9]' | head -n1 || echo "v2")
 
-case "$CPU_LEVEL" in
-    x86-64-v2) PKG="linux-xanmod-x64v2" ;;
-    x86-64-v3|x86-64-v4) PKG="linux-xanmod-x64v3" ;;
-    *) PKG="linux-xanmod-x64v2" ;;
-esac
+# === Выбор лучшего доступного XanMod пакета ===
+
+if [[ "$CPU_LEVEL" == "x86-64-v4" || "$CPU_LEVEL" == "x86-64-v3" ]]; then
+
+    CANDIDATES=(
+        linux-xanmod-x64v3
+        linux-xanmod-lts-x64v3
+        linux-xanmod-edge-x64v3
+    )
+
+elif [[ "$CPU_LEVEL" == "x86-64-v2" ]]; then
+
+    CANDIDATES=(
+        linux-xanmod-x64v2
+        linux-xanmod-lts-x64v2
+        linux-xanmod-edge-x64v2
+    )
+
+else
+
+    CANDIDATES=(
+        linux-xanmod-x64v1
+        linux-xanmod-lts-x64v1
+    )
+
+fi
+
+PKG=""
+
+for p in "${CANDIDATES[@]}"; do
+    if apt-cache search "^$p$" | grep -q "$p"; then
+        PKG="$p"
+        break
+    fi
+done
+
+if [[ -z "$PKG" ]]; then
+    echo "❌ Не найден ни один XanMod пакет!"
+    apt-cache search xanmod
+    exit 1
+fi
+
+echo "Выбран пакет: $PKG"
 
 echo "Устанавливаем: $PKG ($CPU_LEVEL)"
-
+sudo apt install -y $PKG
 echo "Проверяем наличие пакета..."
 
 if apt-cache search "^$PKG$" | grep -q "$PKG"; then
