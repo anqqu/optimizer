@@ -14,41 +14,45 @@ sudo apt update && sudo apt upgrade -y
 # Зависимости
 sudo apt install -y curl gnupg lsb-release ca-certificates dkms libelf-dev build-essential
 
-# === 1. XanMod SAFE install (без падения apt) ===
+# === XanMod SAFE (official method + precheck) ===
 
-echo "Проверяем доступность XanMod repo..."
+echo "=== XanMod safe install ==="
 
 sudo install -m 0755 -d /etc/apt/keyrings
+
 curl -fsSL https://dl.xanmod.org/archive.key | sudo gpg --dearmor -o /etc/apt/keyrings/xanmod.gpg
 
-REPO_URL="https://deb.xanmod.org"
+REPO_URL="http://deb.xanmod.org"
 
-. /etc/os-release
-CODENAME="$VERSION_CODENAME"
+CODENAME=$(lsb_release -sc)
 
-check_repo() {
-    curl -fsI "$REPO_URL/dists/$1/Release" >/dev/null 2>&1
-}
+echo "Detected codename: $CODENAME"
 
-WORKING_CODENAME=""
+# проверка ДО добавления (ВАЖНО)
+if curl -fsI "$REPO_URL/dists/$CODENAME/Release" >/dev/null 2>&1; then
 
-for c in "$CODENAME" bookworm jammy bullseye focal; do
-    echo "→ проверяем $c"
-
-    if check_repo "$c"; then
-        WORKING_CODENAME="$c"
-        echo "✅ найден рабочий repo: $c"
-        break
-    fi
-done
-
-if [ -z "$WORKING_CODENAME" ]; then
-    echo "❌ XanMod repo недоступен — пропускаем установку ядра"
-else
-    echo "deb [signed-by=/etc/apt/keyrings/xanmod.gpg] $REPO_URL $WORKING_CODENAME main" | \
+    echo "deb [signed-by=/etc/apt/keyrings/xanmod.gpg] $REPO_URL $CODENAME main" | \
     sudo tee /etc/apt/sources.list.d/xanmod.list > /dev/null
 
     sudo apt update
+
+else
+    echo "⚠️ XanMod repo not available for $CODENAME"
+
+    # fallback только из официального списка (НЕ выдумываем)
+    for c in bookworm trixie sid noble plucky questing resolute faye gigi wilma xia zara zena; do
+
+        echo "→ trying $c"
+
+        if curl -fsI "$REPO_URL/dists/$c/Release" >/dev/null 2>&1; then
+
+            echo "deb [signed-by=/etc/apt/keyrings/xanmod.gpg] $REPO_URL $c main" | \
+            sudo tee /etc/apt/sources.list.d/xanmod.list > /dev/null
+
+            sudo apt update
+            break
+        fi
+    done
 fi
 
 # === 2. Определение версии CPU и установка ===
