@@ -70,8 +70,28 @@ esac
 
 echo "Устанавливаем: $PKG ($CPU_LEVEL)"
 
-# Правильная установка — только метапакет!
-sudo apt install -y $PKG
+echo "Проверяем наличие пакета..."
+
+if apt-cache search "^$PKG$" | grep -q "$PKG"; then
+
+    echo "✅ Найден пакет: $PKG"
+    sudo apt install -y $PKG
+
+else
+    echo "⚠️ Пакет $PKG не найден"
+
+    echo "Пробуем fallback..."
+
+    for ALT in linux-xanmod-x64v2 linux-xanmod-x64v1 linux-xanmod-edge-x64v3 linux-xanmod-edge-x64v2 linux-xanmod-edge; do
+
+        if apt-cache search "^$ALT$" | grep -q "$ALT"; then
+            echo "✅ Используем fallback: $ALT"
+
+            sudo apt install -y $ALT
+            break
+        fi
+    done
+fi
 
 # === 3. Отключение CAKE (если включён) ===
 echo "Проверяем и отключаем CAKE qdisc..."
