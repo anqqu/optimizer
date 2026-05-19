@@ -29,8 +29,8 @@ sudo curl -fsSL https://raw.githubusercontent.com/ВАШ_НИК/xanmod-optimizer
 ### 📥 Скачать и запустить вручную
 
 ```bash
-sudo curl -fsSL -O https://raw.githubusercontent.com/ВАШ_НИК/xanmod-optimizer/main/install-xanmod.sh
-sudo chmod +x install-xanmod.sh
+sudo curl -fsSL -O https://raw.githubusercontent.com/ВАШ_НИК/xanmod-optimizer/main/install-xanmod.sh; \
+sudo chmod +x install-xanmod.sh; \
 sudo sudo ./install-xanmod.sh
 ```
 
