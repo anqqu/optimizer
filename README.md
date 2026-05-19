@@ -44,12 +44,12 @@
 
 #### Вариант 1: Автоматическая установка (одной командой)
 ```bash
-sudo curl -fsSL https://githubusercontent.com | sudo bash
+sudo curl -fsSL https://raw.githubusercontent.com/anqqu/optimizer/main/optimizer.sh | sudo bash
 ```
 
 #### Вариант 2: Скачивание и запуск вручную
 ```bash
-sudo curl -fsSL -O https://githubusercontent.com
+sudo curl -fsSL -O https://raw.githubusercontent.com/anqqu/optimizer/main/optimizer.sh
 sudo chmod +x optimizer.sh
 sudo ./optimizer.sh
 ```
