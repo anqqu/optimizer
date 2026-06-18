@@ -1,10 +1,10 @@
-# 🚀 XanMod + BBr + TFO + MSS clamp Optimizer для КВН
+# 🚀 XanMod + BBr + TFO + MSS clamp Optimizer для VPS с KVM
 
 ![XanMod](https://img.shields.io/badge/XanMod-Latest-blue)
 ![BBRv3](https://img.shields.io/badge/BBRv3-Enabled-brightgreen)
 ![OS](https://img.shields.io/badge/OS-Debian%20%7C%20Ubuntu-blue)
 
-**Мощная автоматическая оптимизация сетевого стека и ядра сервера под КВН (подходит для конфигураций 1/1, 1/2, 2/4 и выше).**
+**Мощная автоматическая оптимизация сетевого стека и ядра сервера (подходит для конфигураций 1/1, 1/2, 2/4 и выше).**
 
 **Для конфигурации 1/1 требуется Swap-файл.**
 
