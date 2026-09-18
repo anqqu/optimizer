@@ -18,13 +18,13 @@
 # =============================================================================
 if [[ ! -t 0 ]]; then
     _SELF_TMP=$(mktemp /tmp/optimizer-XXXXXX.sh)
-    # Скачиваем скрипт в /tmp (молча, без прогресс-бара)
     curl -fsSL "https://raw.githubusercontent.com/anqqu/optimizer/main/optimizer.sh" \
          -o "$_SELF_TMP" 2>/dev/null \
          || { echo "Ошибка: не удалось загрузить скрипт"; exit 1; }
     chmod +x "$_SELF_TMP"
-    # exec заменяет текущий процесс — возврата нет, stdin теперь = терминал
-    exec bash "$_SELF_TMP" "$@"
+    # < /dev/tty явно задаёт stdin для нового процесса = терминал
+    # Без этого exec наследует пайп как stdin и цикл повторяется бесконечно
+    exec bash "$_SELF_TMP" "$@" < /dev/tty
 fi
 
 # --- Цвета для красивого вывода в терминале ---
