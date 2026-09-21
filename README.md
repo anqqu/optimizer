@@ -19,27 +19,32 @@
 
 ```
 ╔═══════════════════════════════════════════════╗
-║       ⚡ VPS Network Optimizer  v2.0          ║
-║      github.com/anqqu/optimizer               ║
+║       ⚡ VPS Network Optimizer  v2.2          ║
+║          github.com/anqqu/optimizer           ║
 ╚═══════════════════════════════════════════════╝
 
-  Ядро: 6.1.0-28-amd64
-  ОС:   Debian GNU/Linux 12 (bookworm)
-  RAM:  2.0G | CPU: 2 ядра
+  Ядро: 6.12.1-xanmod1-x64v3  |  ОС: Debian 12
+  RAM:  2.0G  |  CPU: 2 ядра  |  Диск: 14G свободно
+
+  ✅ XanMod  ✅ BBR  ❌ TFO  ✅ fq  ✅ MSS  Swap:нет  IPv6:вкл
 
 ─────────────────────────────────────────────
-  1) 🔄 Обновить пакеты (apt update + upgrade)
-  2) 🚀 Установить XanMod + BBRv3 + TFO
-  3) 🔧 Настроить sysctl (conntrack, буферы, лимиты)
-  4) 🔒 MSS Clamping (nftables IPv4+IPv6)
-  5) 📦 Отключить CAKE → fq qdisc
-  6) 💾 Создать Swap 1 ГБ
-  7) 📊 Проверить статус (uname, bbr, tc, nft, swap)
-  8) 🏆 Полная установка (все шаги сразу)
-─────────────────────────────────────────────
-  0) ❌ Выход
+  Ядро и сеть:
+   1) 🔄 Обновить пакеты
+   2) 🚀 Установить XanMod Kernel
+   3) 📡 Включить BBRv3 + fq qdisc
+   4) ⚡ Включить TCP Fast Open (TFO)
+   5) 🔧 Настроить sysctl
+   6) 🔒 MSS Clamping
+   7) 📦 Отключить CAKE → fq
 
-  Выбери пункт [0-8]:
+  Система:
+   8) 🌐 IPv6 (вкл/выкл)
+   9) 💾 Создать Swap
+  10) 📊 Проверить статус
+  11) 🏆 Полная установка
+─────────────────────────────────────────────
+   0) ❌ Выход
 ```
 
 ---
