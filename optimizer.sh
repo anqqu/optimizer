@@ -324,16 +324,87 @@ fn_xanmod() {
         [[ $INSTALLED -eq 0 ]] && { err "Не удалось установить ни одного XanMod пакета"; return 1; }
     fi
 
-    # --- Включаем BBRv3 и TCP Fast Open через sysctl (временно, до полного sysctl-блока) ---
-    info "Включаем BBRv3 и TCP Fast Open..."
-    # BBR — современный алгоритм управления перегрузкой (лучше CUBIC)
+    ok "XanMod ядро установлено!"
+    warn "Перезагрузка потребуется для загрузки нового ядра."
+    info "Следующий шаг: включи BBRv3 (пункт 3) и TFO (пункт 4)."
+}
+
+# =============================================================================
+# ФУНКЦИЯ 3 — Включение BBRv3 (алгоритм управления перегрузкой TCP)
+# =============================================================================
+fn_bbr() {
+    sep
+    echo -e "${BOLD}📡 Включение BBRv3 + fq qdisc${RESET}"
+    sep
+
+    # BBR (Bottleneck Bandwidth and Round-trip propagation time) — умный алгоритм
+    # который следит за пропускной способностью канала и RTT, а не за потерями.
+    # Намного лучше стандартного CUBIC для высоких нагрузок и нестабильных каналов.
+    # fq (Fair Queue) — оптимальный qdisc-партнёр для BBR на серверах.
+
+    info "Применяем BBRv3 + fq..."
     sysctl -w net.core.default_qdisc=fq 2>/dev/null || true
     sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null || true
-    # TFO = 3 означает: включить и для клиента, и для сервера
+
+    # Сохраняем в файл чтобы применялось после перезагрузки
+    # Создаём файл если его нет, или обновляем существующие строки
+    SYSCTL_FILE="/etc/sysctl.d/99-xanmod.conf"
+    if [[ -f "$SYSCTL_FILE" ]]; then
+        # Обновляем строки если уже есть, или добавляем в конец
+        grep -q 'default_qdisc' "$SYSCTL_FILE" || \
+            echo "net.core.default_qdisc = fq" >> "$SYSCTL_FILE"
+        grep -q 'tcp_congestion_control' "$SYSCTL_FILE" || \
+            echo "net.ipv4.tcp_congestion_control = bbr" >> "$SYSCTL_FILE"
+        # Обновляем значения если строки уже есть
+        sed -i 's/^net.core.default_qdisc\s*=.*/net.core.default_qdisc = fq/' "$SYSCTL_FILE"
+        sed -i 's/^net.ipv4.tcp_congestion_control\s*=.*/net.ipv4.tcp_congestion_control = bbr/' "$SYSCTL_FILE"
+    else
+        # Файл ещё не создан — пишем базовый блок
+        tee "$SYSCTL_FILE" > /dev/null <<EOF
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+EOF
+    fi
+
+    # Проверяем результат
+    ACTUAL=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
+    if [[ "$ACTUAL" == "bbr" ]]; then
+        ok "BBRv3 активен! (алгоритм: $ACTUAL, qdisc: fq)"
+    else
+        warn "BBRv3 применён в конфиге, но активируется после перезагрузки."
+        info "Текущий алгоритм: ${ACTUAL:-неизвестно}"
+    fi
+}
+
+# =============================================================================
+# ФУНКЦИЯ 4 — Включение TCP Fast Open (TFO)
+# =============================================================================
+fn_tfo() {
+    sep
+    echo -e "${BOLD}⚡ Включение TCP Fast Open (TFO)${RESET}"
+    sep
+
+    # TFO позволяет передавать данные уже в SYN-пакете при повторных соединениях.
+    # Это сокращает задержку на 1 RTT (round-trip time) — очень заметно на высоком пинге.
+    # Значение 3 = включить и для клиента (1) и для сервера (2): 1+2=3.
+
     sysctl -w net.ipv4.tcp_fastopen=3 2>/dev/null || true
 
-    ok "XanMod + BBRv3 + TFO настроены!"
-    warn "Перезагрузка потребуется для загрузки нового ядра."
+    SYSCTL_FILE="/etc/sysctl.d/99-xanmod.conf"
+    if [[ -f "$SYSCTL_FILE" ]]; then
+        grep -q 'tcp_fastopen' "$SYSCTL_FILE" || \
+            echo "net.ipv4.tcp_fastopen = 3" >> "$SYSCTL_FILE"
+        sed -i 's/^net.ipv4.tcp_fastopen\s*=.*/net.ipv4.tcp_fastopen = 3/' "$SYSCTL_FILE"
+    else
+        echo "net.ipv4.tcp_fastopen = 3" >> "$SYSCTL_FILE"
+    fi
+
+    ACTUAL=$(sysctl -n net.ipv4.tcp_fastopen 2>/dev/null)
+    if [[ "$ACTUAL" == "3" ]]; then
+        ok "TFO активен! (режим: 3 = клиент + сервер)"
+    else
+        warn "TFO применён в конфиге. Текущее значение: ${ACTUAL:-0}"
+    fi
 }
 
 # =============================================================================
@@ -791,55 +862,239 @@ fn_swap() {
 }
 
 # =============================================================================
-# ФУНКЦИЯ 7 — Проверка статуса всех компонентов
+# ФУНКЦИЯ 9 — Отключение / включение IPv6
+# =============================================================================
+fn_ipv6() {
+    sep
+    echo -e "${BOLD}🌐 Управление IPv6${RESET}"
+    sep
+
+    # Проверяем текущее состояние: 1 = отключён, 0 = включён
+    CURRENT=$(sysctl -n net.ipv6.conf.all.disable_ipv6 2>/dev/null || echo "0")
+
+    if [[ "$CURRENT" == "1" ]]; then
+        echo -e "  Статус: ${RED}IPv6 отключён${RESET}"
+        echo ""
+        read -rp "  Включить IPv6 обратно? [y/N]: " confirm
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            sysctl -w net.ipv6.conf.all.disable_ipv6=0 2>/dev/null || true
+            sysctl -w net.ipv6.conf.default.disable_ipv6=0 2>/dev/null || true
+            sysctl -w net.ipv6.conf.lo.disable_ipv6=0 2>/dev/null || true
+            # Удаляем строки из sysctl-файла
+            sed -i '/disable_ipv6/d' /etc/sysctl.d/99-xanmod.conf 2>/dev/null || true
+            ok "IPv6 включён"
+        else
+            info "Отменено."
+        fi
+    else
+        echo -e "  Статус: ${GREEN}IPv6 включён${RESET}"
+        echo ""
+        echo -e "  ${YELLOW}Зачем отключать IPv6?${RESET}"
+        echo "  • Некоторые прокси/Xray конфиги работают только через IPv4"
+        echo "  • Исключает утечки через IPv6 если VPN не поддерживает его"
+        echo "  • Упрощает отладку сетевых проблем"
+        echo ""
+        read -rp "  Отключить IPv6? [y/N]: " confirm
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            # Применяем сразу для всех интерфейсов
+            sysctl -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || true
+            sysctl -w net.ipv6.conf.default.disable_ipv6=1 2>/dev/null || true
+            sysctl -w net.ipv6.conf.lo.disable_ipv6=1 2>/dev/null || true
+            # Сохраняем постоянно
+            SYSCTL_FILE="/etc/sysctl.d/99-xanmod.conf"
+            # Удаляем старые строки чтобы не дублировать
+            sed -i '/disable_ipv6/d' "$SYSCTL_FILE" 2>/dev/null || true
+            cat >> "$SYSCTL_FILE" <<EOF
+# Отключение IPv6
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+EOF
+            ok "IPv6 отключён (применится и после перезагрузки)"
+        else
+            info "Отменено."
+        fi
+    fi
+}
+
+# =============================================================================
+# ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ — Компактная строка статуса для шапки меню
+# =============================================================================
+# Возвращает строку вида: XanMod ✅  BBR ✅  TFO ✅  fq ✅  MSS ✅  Swap: нет  IPv6: вкл
+fn_show_statusbar() {
+    # --- XanMod ---
+    if uname -r 2>/dev/null | grep -qi xanmod; then
+        S_XANMOD="${GREEN}✅ XanMod${RESET}"
+    else
+        S_XANMOD="${RED}❌ XanMod${RESET}"
+    fi
+
+    # --- BBR ---
+    if sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null | grep -q '^bbr'; then
+        S_BBR="${GREEN}✅ BBR${RESET}"
+    else
+        S_BBR="${RED}❌ BBR${RESET}"
+    fi
+
+    # --- TFO ---
+    TFO_VAL=$(sysctl -n net.ipv4.tcp_fastopen 2>/dev/null || echo "0")
+    if [[ "$TFO_VAL" == "3" ]]; then
+        S_TFO="${GREEN}✅ TFO${RESET}"
+    else
+        S_TFO="${RED}❌ TFO${RESET}"
+    fi
+
+    # --- fq qdisc ---
+    if sysctl -n net.core.default_qdisc 2>/dev/null | grep -qE '^fq$'; then
+        S_FQ="${GREEN}✅ fq${RESET}"
+    else
+        S_FQ="${RED}❌ fq${RESET}"
+    fi
+
+    # --- MSS Clamping (nftables) ---
+    if nft list ruleset 2>/dev/null | grep -q mangle; then
+        S_MSS="${GREEN}✅ MSS${RESET}"
+    else
+        S_MSS="${RED}❌ MSS${RESET}"
+    fi
+
+    # --- Swap ---
+    SWAP_INFO=$(swapon --show=SIZE,NAME --noheadings 2>/dev/null | awk '/swapfile/{print $1}')
+    if [[ -n "$SWAP_INFO" ]]; then
+        S_SWAP="${GREEN}Swap:${SWAP_INFO}${RESET}"
+    else
+        S_SWAP="${YELLOW}Swap:нет${RESET}"
+    fi
+
+    # --- IPv6 ---
+    IPV6_DIS=$(sysctl -n net.ipv6.conf.all.disable_ipv6 2>/dev/null || echo "0")
+    if [[ "$IPV6_DIS" == "1" ]]; then
+        S_IPV6="${YELLOW}IPv6:выкл${RESET}"
+    else
+        S_IPV6="${GREEN}IPv6:вкл${RESET}"
+    fi
+
+    echo -e "  ${S_XANMOD}  ${S_BBR}  ${S_TFO}  ${S_FQ}  ${S_MSS}  ${S_SWAP}  ${S_IPV6}"
+}
+
+# =============================================================================
+# ФУНКЦИЯ 10 — Краткая проверка статуса
 # =============================================================================
 fn_status() {
     sep
-    echo -e "${BOLD}✅ Проверка статуса оптимизации${RESET}"
+    echo -e "${BOLD}📊 Статус оптимизации${RESET}"
     sep
+    echo ""
+
+    # Вспомогательная функция: рисует строку таблицы с цветом
+    # Использование: status_row "Название" <ok|warn|err> "Значение"
+    status_row() {
+        local name="$1"
+        local state="$2"   # ok / warn / err
+        local value="$3"
+        local icon color
+        case "$state" in
+            ok)   icon="✅"; color="$GREEN"  ;;
+            warn) icon="⚠️ "; color="$YELLOW" ;;
+            err)  icon="❌"; color="$RED"    ;;
+        esac
+        printf "  %-20s %b%-5s%b  %s\n" "$name" "$color" "$icon" "$RESET" "$value"
+    }
+
+    # --- XanMod ---
+    KERNEL=$(uname -r 2>/dev/null)
+    if echo "$KERNEL" | grep -qi xanmod; then
+        status_row "XanMod Kernel" ok "$KERNEL"
+    else
+        status_row "XanMod Kernel" err "$KERNEL (не xanmod)"
+    fi
+
+    # --- BBR ---
+    BBR_VAL=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "недоступно")
+    if [[ "$BBR_VAL" == "bbr" ]]; then
+        status_row "BBRv3" ok "$BBR_VAL"
+    else
+        status_row "BBRv3" err "$BBR_VAL (нужен bbr)"
+    fi
+
+    # --- TFO ---
+    TFO_VAL=$(sysctl -n net.ipv4.tcp_fastopen 2>/dev/null || echo "0")
+    if [[ "$TFO_VAL" == "3" ]]; then
+        status_row "TCP Fast Open" ok "3 (клиент + сервер)"
+    elif [[ "$TFO_VAL" == "1" || "$TFO_VAL" == "2" ]]; then
+        status_row "TCP Fast Open" warn "частично ($TFO_VAL, нужно 3)"
+    else
+        status_row "TCP Fast Open" err "выключен ($TFO_VAL)"
+    fi
+
+    # --- qdisc ---
+    QDISC_VAL=$(sysctl -n net.core.default_qdisc 2>/dev/null || echo "?")
+    if [[ "$QDISC_VAL" == "fq" ]]; then
+        status_row "Default qdisc" ok "fq"
+    else
+        status_row "Default qdisc" warn "$QDISC_VAL (рекомендован fq)"
+    fi
+
+    # --- MSS Clamping ---
+    if nft list ruleset 2>/dev/null | grep -q mangle; then
+        # Получаем значение MSS из конфига если есть
+        MSS_VAL=$(grep -o 'maxseg size set [0-9]*' /etc/nftables.conf 2>/dev/null | head -1 | awk '{print $NF}')
+        [[ -n "$MSS_VAL" ]] && status_row "MSS Clamping" ok "nftables (MSS=$MSS_VAL)" \
+                             || status_row "MSS Clamping" ok "nftables (rt mtu)"
+    else
+        status_row "MSS Clamping" err "nftables не настроен"
+    fi
+
+    # --- Conntrack ---
+    CT_VAL=$(sysctl -n net.netfilter.nf_conntrack_max 2>/dev/null || echo "—")
+    if [[ "$CT_VAL" != "—" ]]; then
+        status_row "Conntrack max" ok "$CT_VAL"
+    else
+        status_row "Conntrack max" warn "модуль не загружен"
+    fi
+
+    # --- CAKE ---
+    CAKE_FOUND=0
+    for iface in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep -v '^lo$'); do
+        tc qdisc show dev "$iface" 2>/dev/null | grep -qi cake && CAKE_FOUND=1 && break
+    done
+    if [[ $CAKE_FOUND -eq 0 ]]; then
+        status_row "CAKE qdisc" ok "не обнаружен (хорошо)"
+    else
+        status_row "CAKE qdisc" warn "обнаружен! Запусти пункт 7"
+    fi
+
+    # --- Swap ---
+    SWAP_LINE=$(swapon --show=NAME,SIZE,USED --noheadings 2>/dev/null | grep swapfile | head -1)
+    if [[ -n "$SWAP_LINE" ]]; then
+        SWAP_SZ=$(echo "$SWAP_LINE" | awk '{print $2}')
+        SWAP_USED=$(echo "$SWAP_LINE" | awk '{print $3}')
+        status_row "Swap" ok "${SWAP_SZ} (использовано: ${SWAP_USED})"
+    else
+        status_row "Swap" warn "не активен"
+    fi
+
+    # --- IPv6 ---
+    IPV6_DIS=$(sysctl -n net.ipv6.conf.all.disable_ipv6 2>/dev/null || echo "0")
+    if [[ "$IPV6_DIS" == "1" ]]; then
+        status_row "IPv6" warn "отключён"
+    else
+        status_row "IPv6" ok "включён"
+    fi
+
+    # --- Сервис tc-fq ---
+    if systemctl is-active --quiet tc-fq-optimize.service 2>/dev/null; then
+        status_row "tc-fq сервис" ok "активен"
+    else
+        status_row "tc-fq сервис" warn "не установлен"
+    fi
 
     echo ""
-    echo -e "${CYAN}▶ Ядро системы (должно содержать 'xanmod'):${RESET}"
-    uname -r
-
-    echo ""
-    echo -e "${CYAN}▶ Алгоритм TCP (должен быть 'bbr'):${RESET}"
-    sysctl net.ipv4.tcp_congestion_control 2>/dev/null || echo "  Недоступно"
-
-    echo ""
-    echo -e "${CYAN}▶ Дефолтный qdisc (должен быть 'fq'):${RESET}"
-    sysctl net.core.default_qdisc 2>/dev/null || echo "  Недоступно"
-
-    echo ""
-    echo -e "${CYAN}▶ TCP Fast Open (должно быть '3'):${RESET}"
-    sysctl net.ipv4.tcp_fastopen 2>/dev/null || echo "  Недоступно"
-
-    echo ""
-    echo -e "${CYAN}▶ Очереди пакетов (tc qdisc show):${RESET}"
-    tc qdisc show 2>/dev/null || echo "  tc не доступен"
-
-    echo ""
-    echo -e "${CYAN}▶ Conntrack максимум:${RESET}"
-    sysctl net.netfilter.nf_conntrack_max 2>/dev/null || echo "  Модуль nf_conntrack не загружен"
-
-    echo ""
-    echo -e "${CYAN}▶ Правила nftables:${RESET}"
-    nft list ruleset 2>/dev/null || echo "  nftables не доступен или правила не заданы"
-
-    echo ""
-    echo -e "${CYAN}▶ Swap:${RESET}"
-    swapon --show 2>/dev/null || echo "  Swap не активен"
-    free -h
-
-    echo ""
-    echo -e "${CYAN}▶ Сервис tc-fq-optimize:${RESET}"
-    systemctl is-active tc-fq-optimize.service 2>/dev/null || echo "  Сервис не установлен"
-
     sep
 }
 
 # =============================================================================
-# ФУНКЦИЯ 8 — Полная установка (все шаги по порядку)
+# ФУНКЦИЯ 11 — Полная установка (все шаги по порядку)
 # =============================================================================
 fn_full_install() {
     sep
@@ -851,23 +1106,31 @@ fn_full_install() {
     [[ "$confirm" =~ ^[Yy]$ ]] || { info "Отменено."; return; }
 
     echo ""
-    info "Шаг 1/5: Обновление пакетов..."
+    info "Шаг 1/7: Обновление пакетов..."
     fn_update
 
     echo ""
-    info "Шаг 2/5: Установка XanMod + BBRv3 + TFO..."
+    info "Шаг 2/7: Установка XanMod ядра..."
     fn_xanmod
 
     echo ""
-    info "Шаг 3/5: Настройка sysctl..."
+    info "Шаг 3/7: Включение BBRv3..."
+    fn_bbr
+
+    echo ""
+    info "Шаг 4/7: Включение TFO..."
+    fn_tfo
+
+    echo ""
+    info "Шаг 5/7: Настройка sysctl..."
     fn_sysctl
 
     echo ""
-    info "Шаг 4/5: MSS Clamping..."
+    info "Шаг 6/7: MSS Clamping..."
     fn_mss
 
     echo ""
-    info "Шаг 5/5: Отключение CAKE → fq..."
+    info "Шаг 7/7: Отключение CAKE → fq..."
     fn_cake
 
     sep
@@ -890,57 +1153,68 @@ fn_full_install() {
 # =============================================================================
 main_menu() {
     while true; do
-        # Очищаем экран перед показом меню
         clear
         echo ""
         echo -e "${CYAN}${BOLD}╔═══════════════════════════════════════════════╗${RESET}"
-        echo -e "${CYAN}${BOLD}║       ⚡ VPS Network Optimizer  v2.1          ║${RESET}"
+        echo -e "${CYAN}${BOLD}║       ⚡ VPS Network Optimizer  v2.2          ║${RESET}"
         echo -e "${CYAN}${BOLD}║      github.com/anqqu/optimizer               ║${RESET}"
         echo -e "${CYAN}${BOLD}╚═══════════════════════════════════════════════╝${RESET}"
         echo ""
 
-        # Показываем текущее ядро прямо в меню (удобно для ориентации)
-        echo -e "  ${BLUE}Ядро:${RESET} $(uname -r)"
-        echo -e "  ${BLUE}ОС:${RESET}   $(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || echo 'неизвестно')"
-        echo -e "  ${BLUE}RAM:${RESET}  $(free -h | awk '/^Mem:/{print $2}') | CPU: $(nproc) ядра"
+        # Системная информация
+        echo -e "  ${BLUE}Ядро:${RESET} $(uname -r)  ${BLUE}|${RESET}  ${BLUE}ОС:${RESET} $(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')"
+        echo -e "  ${BLUE}RAM:${RESET}  $(free -h | awk '/^Mem:/{print $2}')  ${BLUE}|${RESET}  ${BLUE}CPU:${RESET} $(nproc) ядра  ${BLUE}|${RESET}  ${BLUE}Диск:${RESET} $(df -h / | awk 'NR==2{print $4}') свободно"
+
+        # Строка статуса компонентов (✅/❌ прямо в меню)
+        echo ""
+        fn_show_statusbar
         echo ""
         sep
-        echo -e "  ${GREEN}1)${RESET} 🔄 Обновить пакеты ${YELLOW}(apt update + upgrade)${RESET}"
-        echo -e "  ${GREEN}2)${RESET} 🚀 Установить XanMod + BBRv3 + TFO"
-        echo -e "  ${GREEN}3)${RESET} 🔧 Настроить sysctl ${YELLOW}(conntrack, буферы, лимиты)${RESET}"
-        echo -e "  ${GREEN}4)${RESET} 🔒 MSS Clamping ${YELLOW}(авто / адаптивный MTU / ручной)${RESET}"
-        echo -e "  ${GREEN}5)${RESET} 📦 Отключить CAKE → fq qdisc"
-        echo -e "  ${GREEN}6)${RESET} 💾 Создать Swap ${YELLOW}(512МБ / 1 / 2 / 4 ГБ / свой)${RESET}"
-        echo -e "  ${GREEN}7)${RESET} 📊 Проверить статус ${YELLOW}(uname, bbr, tc, nft, swap)${RESET}"
-        echo -e "  ${GREEN}8)${RESET} 🏆 ${BOLD}Полная установка (все шаги сразу)${RESET}"
+
+        echo -e "  ${BOLD}Ядро и сеть:${RESET}"
+        echo -e "  ${GREEN} 1)${RESET} 🔄 Обновить пакеты ${YELLOW}(apt + зеркало-фоллбэк)${RESET}"
+        echo -e "  ${GREEN} 2)${RESET} 🚀 Установить XanMod Kernel"
+        echo -e "  ${GREEN} 3)${RESET} 📡 Включить BBRv3 + fq qdisc"
+        echo -e "  ${GREEN} 4)${RESET} ⚡ Включить TCP Fast Open ${YELLOW}(TFO)${RESET}"
+        echo -e "  ${GREEN} 5)${RESET} 🔧 Настроить sysctl ${YELLOW}(conntrack, буферы, лимиты)${RESET}"
+        echo -e "  ${GREEN} 6)${RESET} 🔒 MSS Clamping ${YELLOW}(авто / адаптивный MTU / ручной)${RESET}"
+        echo -e "  ${GREEN} 7)${RESET} 📦 Отключить CAKE → fq qdisc"
+        echo ""
+        echo -e "  ${BOLD}Система:${RESET}"
+        echo -e "  ${GREEN} 8)${RESET} 🌐 IPv6 ${YELLOW}(вкл/выкл)${RESET}"
+        echo -e "  ${GREEN} 9)${RESET} 💾 Создать Swap ${YELLOW}(512МБ / 1 / 2 / 4 ГБ / свой)${RESET}"
+        echo -e "  ${GREEN}10)${RESET} 📊 Проверить статус"
+        echo ""
+        echo -e "  ${BOLD}Быстрый старт:${RESET}"
+        echo -e "  ${GREEN}11)${RESET} 🏆 ${BOLD}Полная установка (все шаги сразу)${RESET}"
         sep
-        echo -e "  ${RED}0)${RESET} ❌ Выход"
+        echo -e "  ${RED} 0)${RESET} ❌ Выход"
         echo ""
 
-        # Читаем выбор пользователя
-        read -rp "  Выбери пункт [0-8]: " choice
-
+        read -rp "  Выбери пункт [0-11]: " choice
         echo ""
+
         case "$choice" in
-            1) fn_update       ;;
-            2) fn_xanmod       ;;
-            3) fn_sysctl       ;;
-            4) fn_mss          ;;
-            5) fn_cake         ;;
-            6) fn_swap         ;;
-            7) fn_status       ;;
-            8) fn_full_install ;;
+            1)  fn_update       ;;
+            2)  fn_xanmod       ;;
+            3)  fn_bbr          ;;
+            4)  fn_tfo          ;;
+            5)  fn_sysctl       ;;
+            6)  fn_mss          ;;
+            7)  fn_cake         ;;
+            8)  fn_ipv6         ;;
+            9)  fn_swap         ;;
+            10) fn_status       ;;
+            11) fn_full_install ;;
             0)
-                echo -e "${GREEN}Выход. Удачи, Anku! 👋${RESET}"
+                echo -e "${GREEN}Удачи! 👋${RESET}"
                 exit 0
                 ;;
             *)
-                # Если ввели что-то не то — предупреждение
-                warn "Неверный выбор: '$choice'. Введи число от 0 до 8."
+                warn "Неверный выбор: '$choice'. Введи число от 0 до 11."
                 ;;
         esac
 
-        # После выполнения пункта — пауза, чтобы прочитать вывод
         echo ""
         read -rp "  Нажми Enter чтобы вернуться в меню..." _
     done
