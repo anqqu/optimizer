@@ -1,124 +1,204 @@
-﻿# ⚡ VPS Network Optimizer v2.0
+﻿# ⚡ VPS Network Optimizer
 
-![XanMod](https://img.shields.io/badge/XanMod-Latest-blue)
-![BBRv3](https://img.shields.io/badge/BBRv3-Enabled-brightgreen)
-![OS](https://img.shields.io/badge/OS-Debian%20%7C%20Ubuntu-blue)
-![Interactive](https://img.shields.io/badge/Menu-Interactive-orange)
+[![Version](https://img.shields.io/badge/version-2.2-blue.svg)](https://github.com/anqqu/optimizer)
+[![OS](https://img.shields.io/badge/OS-Debian%20%7C%20Ubuntu-orange.svg)](https://github.com/anqqu/optimizer)
+[![Shell](https://img.shields.io/badge/shell-bash-green.svg)](https://github.com/anqqu/optimizer)
 
-**Интерактивный оптимизатор сетевого стека и ядра VPS с удобным меню выбора.**
-
-> [!IMPORTANT]
-> Скрипт заменяет ядро системы. Сделай **снапшот VPS** перед запуском!
-> Работает только на **KVM**-виртуализации (не OpenVZ/LXC).
+Интерактивный bash-скрипт для оптимизации сетевого стека и обслуживания Linux VPS.  
+Запускай нужные шаги по одному или всё сразу через **Полную установку**.
 
 ---
 
-## 🎛️ Интерактивное меню
+## Быстрый запуск
 
-После запуска скрипт показывает меню — выбираешь нужное действие по номеру:
+```bash
+sudo curl -fsSL https://raw.githubusercontent.com/anqqu/optimizer/main/optimizer.sh | sudo bash
+```
+
+После первого запуска автоматически устанавливается команда `opti`.  
+Следующие разы — просто:
+
+```bash
+opti
+```
+
+---
+
+## Меню
 
 ```
 ╔═══════════════════════════════════════════════╗
 ║       ⚡ VPS Network Optimizer  v2.2          ║
-║          github.com/anqqu/optimizer           ║
+║      github.com/anqqu/optimizer               ║
 ╚═══════════════════════════════════════════════╝
 
-  Ядро: 6.12.1-xanmod1-x64v3  |  ОС: Debian 12
+  Ядро: 6.12.1-xanmod1  |  ОС: Debian 12
   RAM:  2.0G  |  CPU: 2 ядра  |  Диск: 14G свободно
 
-  ✅ XanMod  ✅ BBR  ❌ TFO  ✅ fq  ✅ MSS  Swap:нет  IPv6:вкл
+  ✅ XanMod  ✅ BBR  ✅ TFO  ✅ fq  ✅ MSS  ✅ Proxy  Swap:1.0G  IPv6:вкл
 
-─────────────────────────────────────────────
   Ядро и сеть:
-   1) 🔄 Обновить пакеты
+   1) 🔄 Обновить пакеты              (apt + авто-зеркало)
    2) 🚀 Установить XanMod Kernel
    3) 📡 Включить BBRv3 + fq qdisc
-   4) ⚡ Включить TCP Fast Open (TFO)
-   5) 🔧 Настроить sysctl
-   6) 🔒 MSS Clamping
-   7) 📦 Отключить CAKE → fq
+   4) ⚡ Включить TCP Fast Open       (TFO)
+   5) 🔧 Настроить sysctl             (conntrack, буферы, лимиты)
+   6) 🔌 Оптимизация TCP для прокси   (keepalive + notsent_lowat)
+   7) 🔒 MSS Clamping                 (авто / адаптивный MTU / ручной)
+   8) 📦 Отключить CAKE → fq qdisc
 
   Система:
-   8) 🌐 IPv6 (вкл/выкл)
-   9) 💾 Создать Swap
-  10) 📊 Проверить статус
-  11) 🏆 Полная установка
-─────────────────────────────────────────────
+   9) 🌐 IPv6                         (вкл / выкл)
+  10) 💾 Создать Swap                 (512МБ / 1 / 2 / 4 ГБ / свой)
+  11) 🧹 Очистить диск               (autoremove, кэш, логи, docker)
+
+  Сервисы:
+  12) 🐳 Обновить RemnaNode           (docker compose pull + up)
+
+  Утилиты:
+  13) 📊 Проверить статус
+  14) 📥 Установить команду opti      (запуск из любого места)
+
+  Быстрый старт:
+  15) 🏆 Полная установка             (все шаги сразу)
+
    0) ❌ Выход
 ```
 
 ---
 
-## ✨ Что делает каждый пункт
+## Статусбар
 
-| # | Действие | Описание |
-| :---: | :--- | :--- |
-| **1** | 🔄 Обновить пакеты | `apt update + upgrade` + установка зависимостей |
-| **2** | 🚀 XanMod + BBRv3 + TFO | Автовыбор ядра (v2/v3/v4), BBR алгоритм TCP, Fast Open |
-| **3** | 🔧 sysctl | Conntrack, буферы TCP/UDP, лимиты — подбираются под RAM/CPU |
-| **4** | 🔒 MSS Clamping | nftables правила для IPv4+IPv6 (решает path MTU black hole) |
-| **5** | 📦 CAKE → fq | Замена CAKE qdisc на fq + systemd-сервис для автоприменения |
-| **6** | 💾 Swap 1 ГБ | Создание и активация swap-файла (нужен для конфигов 1/1) |
-| **7** | 📊 Статус | Проверка ядра, BBR, qdisc, conntrack, nftables, swap |
-| **8** | 🏆 Всё сразу | Выполняет пункты 1–5 по порядку с запросом перезагрузки |
+После каждого действия меню показывает актуальный статус в шапке:
 
----
+```
+✅ XanMod  ✅ BBR  ❌ TFO  ✅ fq  ✅ MSS  ❌ Proxy  Swap:нет  IPv6:вкл
+```
 
-## 📋 Требования
-
-* **ОС:** Debian 11/12, Ubuntu 22.04/24.04 LTS
-* **Виртуализация:** KVM (не OpenVZ/LXC)
-* **Права:** запуск от root или через `sudo`
-* **RAM:** рекомендуется 2+ ГБ (на 1 ГБ нужен Swap — пункт 6)
+| Иконка | Значение |
+|--------|----------|
+| ✅ | Настроено и активно |
+| ❌ | Не настроено — нужно запустить пункт меню |
+| ⚠️ | Настроено, но не оптимально |
 
 ---
 
-## 🚀 Установка и запуск
+## Что делает каждый пункт
 
-### Вариант 1: Одной командой (curl)
+### Ядро и сеть
+
+| # | Пункт | Описание |
+|---|-------|----------|
+| 1 | Обновить пакеты | `apt update + upgrade` без интерактивных диалогов. Если основное зеркало недоступно — автоматически переключается на DE / RU / FR / Яндекс / Aliyun |
+| 2 | XanMod Kernel | Добавляет репозиторий, определяет уровень CPU (x64v1–v4), устанавливает оптимальное ядро |
+| 3 | BBRv3 + fq | Включает алгоритм управления перегрузкой BBRv3 и Fair Queue qdisc. Лучше CUBIC для нестабильных каналов и высоких нагрузок |
+| 4 | TFO | TCP Fast Open: данные уже в первом SYN-пакете, −1 RTT задержки при повторных соединениях |
+| 5 | sysctl | Conntrack max, TCP буферы, SYN backlog, TIME_WAIT recycling, IP форвардинг, файловые дескрипторы |
+| 6 | Прокси-тюнинг | Три параметра keepalive в паре (time=600 / intvl=30 / probes=5) + notsent_lowat=16384 + swappiness=10. Мёртвые соединения закрываются через ~12 мин вместо ~2 часов |
+| 7 | MSS Clamping | nftables: три режима — авто (rt mtu) / адаптивный бинарный поиск Path MTU / ручной ввод |
+| 8 | CAKE → fq | Заменяет CAKE на fq на всех интерфейсах + systemd-сервис для автозапуска после reboot |
+
+### Система
+
+| # | Пункт | Описание |
+|---|-------|----------|
+| 9 | IPv6 | Включить или отключить IPv6 с сохранением в sysctl (активно после reboot) |
+| 10 | Swap | Интерактивный выбор размера: 512МБ / 1 / 2 / 4 ГБ или свой. Показывает свободное место перед созданием |
+| 11 | Очистка диска | Показывает дисклеймер с перечнем удаляемого: `apt autoremove`, `apt clean`, `journalctl --vacuum-size=100M`, временные файлы скрипта, `docker image prune` (если установлен). Работающие сервисы и данные не затрагиваются |
+
+### Сервисы
+
+| # | Пункт | Описание |
+|---|-------|----------|
+| 12 | RemnaNode | Обновление через `docker compose pull → down → up -d`. Проверяет `/opt/remnanode`, показывает контейнеры до и после, предлагает следить за логами |
+
+### Утилиты
+
+| # | Пункт | Описание |
+|---|-------|----------|
+| 13 | Статус | Компактная таблица ✅/⚠️/❌ для каждого компонента: XanMod, BBR, TFO, qdisc, MSS, прокси-тюнинг, conntrack, CAKE, swap, IPv6, сервис tc-fq |
+| 14 | Команда opti | Устанавливает `/usr/local/bin/opti` — после этого меню запускается командой `opti` из любого места. **Устанавливается автоматически при первом запуске** |
+
+### Быстрый старт
+
+| # | Пункт | Описание |
+|---|-------|----------|
+| 15 | Полная установка | Запускает шаги 1→2→3→4→5→6→7→8 по порядку. В конце предлагает перезагрузку |
+
+---
+
+## Команда opti
+
+При первом запуске скрипт автоматически создаёт `/usr/local/bin/opti`.  
+Это небольшой загрузчик: скачивает свежую версию скрипта и запускает её.
+
 ```bash
+# Первый запуск (через curl):
 sudo curl -fsSL https://raw.githubusercontent.com/anqqu/optimizer/main/optimizer.sh | sudo bash
+
+# Все последующие запуски:
+opti
 ```
 
-### Вариант 2: Скачать и запустить
+Установить вручную — пункт **14** в меню.
+
+---
+
+## Требования
+
+| | |
+|---|---|
+| **ОС** | Debian 11/12, Ubuntu 22.04/24.04 LTS |
+| **Виртуализация** | KVM (не OpenVZ / LXC) |
+| **Доступ** | root / sudo |
+| **Интернет** | для скачивания XanMod репозитория |
+
+---
+
+## Быстрая проверка после установки
+
 ```bash
-sudo curl -fsSL -O https://raw.githubusercontent.com/anqqu/optimizer/main/optimizer.sh
-sudo chmod +x optimizer.sh
-sudo ./optimizer.sh
+# Ядро (должно содержать xanmod)
+uname -r
+
+# BBR
+sysctl net.ipv4.tcp_congestion_control
+
+# TFO (должно быть 3)
+sysctl net.ipv4.tcp_fastopen
+
+# Keepalive (должно быть 600)
+sysctl net.ipv4.tcp_keepalive_time
+
+# Swap
+swapon --show
 ```
 
 ---
 
-## 🔄 После полной установки
+## Changelog
 
-Перезагрузи сервер (скрипт предложит сам):
-```bash
-sudo reboot
-```
+### v2.2
+- Пункт 6: оптимизация TCP для прокси (keepalive trio + notsent_lowat + swappiness)
+- Пункт 9: управление IPv6 (вкл/выкл с сохранением в sysctl)
+- Пункт 11: очистка диска с дисклеймером
+- Пункт 12: обновление RemnaNode через docker compose
+- Пункт 14: команда `opti`, авто-установка при первом запуске
+- Статусбар ✅/❌ в шапке меню (8 индикаторов)
+- Компактный статус-отчёт (таблица вместо raw вывода)
+- Меню разбито по секциям: Ядро / Система / Сервисы / Утилиты / Быстрый старт
 
-Затем проверь (или используй пункт **7** в меню):
-```bash
-uname -r                                    # должно быть xanmod
-sysctl net.ipv4.tcp_congestion_control      # должно быть bbr
-tc qdisc show                               # ищи fq
-nft list ruleset                            # правила MSS clamping
-```
+### v2.1
+- BBRv3 и TFO вынесены в отдельные пункты меню
+- Интерактивный выбор размера Swap (512МБ / 1 / 2 / 4 ГБ / свой)
+- Адаптивный поиск Path MTU (бинарный поиск + ручной ввод)
 
----
-
-## 🛠️ Бонус: Swap вручную (без меню)
-
-```bash
-sudo swapoff /swapfile 2>/dev/null || true && \
-sudo fallocate -l 1G /swapfile && \
-sudo chmod 600 /swapfile && \
-sudo mkswap /swapfile && \
-sudo swapon /swapfile && \
-{ sudo grep -qE '^\s*/swapfile\s' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab; }
-```
+### v2.0
+- Полный рефакторинг: интерактивное меню с 8 пунктами
+- Исправление бага с `curl | bash` (бесконечное меню)
+- Авто-смена зеркала apt при недоступности основного
+- `DEBIAN_FRONTEND=noninteractive` — нет зависания на диалогах
 
 ---
 
-## 🎯 Для кого этот проект
-
-Сделан для себя — для быстрой оптимизации свежих VPS под прокси/Xray.
+**Лицензия:** MIT
