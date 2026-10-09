@@ -93,9 +93,10 @@ fn_update() {
 fn_xanmod() {
     sep; echo -e "${BOLD}🚀 Установка XanMod Kernel${RESET}"; sep
     info "Добавляем репозиторий XanMod..."
-    curl -fsSL https://dl.xanmod.org/archive.key | \
-        gpg --dearmor -o /usr/share/keyrings/xanmod-archive-keyring.gpg
-    echo 'deb [signed-by=/usr/share/keyrings/xanmod-archive-keyring.gpg] http://deb.xanmod.org releases main' \
+    mkdir -p /etc/apt/keyrings
+    curl -fsSL https://dl.xanmod.org/archive.key \
+        gpg --dearmor --yes -o /etc/apt/keyrings/xanmod-archive-keyring.gpg
+    echo 'deb [signed-by=/etc/apt/keyrings/xanmod-archive-keyring.gpg] http://deb.xanmod.org $(lsb_release -sc) main' \
         > /etc/apt/sources.list.d/xanmod-release.list
     DEBIAN_FRONTEND=noninteractive apt-get update -o Acquire::Retries=3 2>/dev/null | \
         grep -v '^W:' | grep -v 'Ign:' || true
@@ -105,8 +106,8 @@ fn_xanmod() {
     chmod +x "$PSABI_SCRIPT" 2>/dev/null || true
     CPU_LEVEL="x64v3"
     if [[ -f "$PSABI_SCRIPT" ]]; then
-        PSABI_OUT=$(bash "$PSABI_SCRIPT" 2>/dev/null || echo "")
-        if   echo "$PSABI_OUT" | grep -q 'x86-64-v4'; then CPU_LEVEL="x64v4"
+        PSABI_OUT=$(awk -f "$PSABI_SCRIPT" 2>/dev/null || echo "")
+        if   echo "$PSABI_OUT" | grep -q 'x86-64-v4'; then CPU_LEVEL="x64v3"
         elif echo "$PSABI_OUT" | grep -q 'x86-64-v3'; then CPU_LEVEL="x64v3"
         elif echo "$PSABI_OUT" | grep -q 'x86-64-v2'; then CPU_LEVEL="x64v2"
         else CPU_LEVEL="x64v1"; fi
