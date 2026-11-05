@@ -94,40 +94,117 @@ fn_xanmod() {
     sep; echo -e "${BOLD}🚀 Установка XanMod Kernel${RESET}"; sep
     info "Добавляем репозиторий XanMod..."
     mkdir -p /etc/apt/keyrings
-    curl -fsSL https://dl.xanmod.org/archive.key \
-        gpg --dearmor --yes -o /etc/apt/keyrings/xanmod-archive-keyring.gpg
-    echo 'deb [signed-by=/etc/apt/keyrings/xanmod-archive-keyring.gpg] http://deb.xanmod.org $(lsb_release -sc) main' \
+
+    # 1. Загрузка и импорт GPG-ключа репозитория XanMod
+    # Исправлена опечатка: был обратный слэш '\' вместо пайпа '|'
+    if curl -fsSL https://dl.xanmod.org/archive.key | gpg --dearmor --yes -o /etc/apt/keyrings/xanmod-archive-keyring.gpg 2>/dev/null; then
+        ok "GPG-ключ XanMod успешно добавлен"
+    else
+        err "Ошибка загрузки GPG-ключа XanMod. Проверь доступ в сеть."
+        return 1
+    fi
+
+    # 2. Добавление репозитория
+    # XanMod использует единую ветку 'releases main', а не кодовые имена дистрибутивов
+    echo 'deb [signed-by=/etc/apt/keyrings/xanmod-archive-keyring.gpg] http://deb.xanmod.org releases main' \
         > /etc/apt/sources.list.d/xanmod-release.list
-    DEBIAN_FRONTEND=noninteractive apt-get update -o Acquire::Retries=3 2>/dev/null | \
-        grep -v '^W:' | grep -v 'Ign:' || true
-    info "Определяем уровень CPU..."
+
+    info "Обновляем список пакетов apt..."
+    DEBIAN_FRONTEND=noninteractive apt-get update -o Acquire::Retries=3 2>&1 | \
+        grep -v '^W:' | grep -v 'translation' | grep -v 'Ign:' || true
+
+    # 3. Определение уровня microarchitecture CPU (psABI)
+    info "Определяем уровень поддержки CPU..."
+    CPU_LEVEL=""
+
+    # Сначала проверяем флаги /proc/cpuinfo напрямую (быстро и независимо от внешних скриптов)
+    CPU_FLAGS=$(grep -m1 '^flags' /proc/cpuinfo 2>/dev/null || echo "")
+    if [[ -n "$CPU_FLAGS" ]]; then
+        # v3: требует AVX2, FMA, BMI1, BMI2
+        if echo "$CPU_FLAGS" | grep -qw 'avx2' && \
+           echo "$CPU_FLAGS" | grep -qw 'fma' && \
+           echo "$CPU_FLAGS" | grep -qw 'bmi1' && \
+           echo "$CPU_FLAGS" | grep -qw 'bmi2'; then
+            CPU_LEVEL="x64v3"
+        # v2: требует SSE4.2, POPCNT
+        elif echo "$CPU_FLAGS" | grep -qw 'sse4_2' && \
+             echo "$CPU_FLAGS" | grep -qw 'popcnt'; then
+            CPU_LEVEL="x64v2"
+        else
+            CPU_LEVEL="x64v1"
+        fi
+    fi
+
+    # Сверяемся со скриптом XanMod, если удаётся скачать
     PSABI_SCRIPT="/tmp/check_x86-64_psabi.sh"
-    curl -fsSL "https://dl.xanmod.org/check_x86-64_psabi.sh" -o "$PSABI_SCRIPT" 2>/dev/null || true
-    chmod +x "$PSABI_SCRIPT" 2>/dev/null || true
-    CPU_LEVEL="x64v3"
-    if [[ -f "$PSABI_SCRIPT" ]]; then
+    if curl -fsSL --connect-timeout 5 "https://dl.xanmod.org/check_x86-64_psabi.sh" -o "$PSABI_SCRIPT" 2>/dev/null; then
         PSABI_OUT=$(awk -f "$PSABI_SCRIPT" 2>/dev/null || echo "")
         if   echo "$PSABI_OUT" | grep -q 'x86-64-v4'; then CPU_LEVEL="x64v3"
         elif echo "$PSABI_OUT" | grep -q 'x86-64-v3'; then CPU_LEVEL="x64v3"
         elif echo "$PSABI_OUT" | grep -q 'x86-64-v2'; then CPU_LEVEL="x64v2"
-        else CPU_LEVEL="x64v1"; fi
+        elif echo "$PSABI_OUT" | grep -q 'x86-64-v1'; then CPU_LEVEL="x64v1"; fi
+        rm -f "$PSABI_SCRIPT" 2>/dev/null || true
     fi
+
+    # Безопасный дефолт, если не удалось определить (x64v2 совместим с большинством KVM VPS)
+    [[ -z "$CPU_LEVEL" ]] && CPU_LEVEL="x64v2"
+
     info "Уровень CPU: $CPU_LEVEL"
+
+    # 4. Подбираем кандидаты пакетов ядра в зависимости от архитектуры процессора
+    # Нельзя пытаться ставить x64v3 на процессоры v2/v1 во избежание паники ядра
+    PKG_CANDIDATES=()
+    case "$CPU_LEVEL" in
+        x64v3)
+            PKG_CANDIDATES=("linux-xanmod-x64v3" "linux-xanmod-edge-x64v3" "linux-xanmod-lts-x64v3" "linux-xanmod-x64v2")
+            ;;
+        x64v2)
+            PKG_CANDIDATES=("linux-xanmod-x64v2" "linux-xanmod-edge-x64v2" "linux-xanmod-lts-x64v2")
+            ;;
+        *)
+            # В ветках Main/Edge архитектура v1 снята с поддержки, доступна в LTS
+            PKG_CANDIDATES=("linux-xanmod-lts-x64v1" "linux-xanmod-x64v2")
+            ;;
+    esac
+
     PKG=""
-    for C in "linux-xanmod-${CPU_LEVEL}" "linux-xanmod-edge-${CPU_LEVEL}" \
-             "linux-xanmod-x64v3" "linux-xanmod-x64v2" "linux-xanmod"; do
-        if apt-cache show "$C" > /dev/null 2>&1; then PKG="$C"; break; fi
+    for C in "${PKG_CANDIDATES[@]}"; do
+        if apt-cache show "$C" > /dev/null 2>&1; then
+            PKG="$C"
+            break
+        fi
     done
-    [[ -z "$PKG" ]] && { err "XanMod пакет не найден!"; apt-cache search xanmod; return 1; }
+
+    # Резервная попытка через общий метапакет
+    if [[ -z "$PKG" ]]; then
+        if apt-cache show "linux-xanmod" > /dev/null 2>&1; then
+            PKG="linux-xanmod"
+        fi
+    fi
+
+    [[ -z "$PKG" ]] && {
+        err "XanMod пакет не найден в репозитории!"
+        info "Доступные пакеты xanmod в apt:"
+        apt-cache search xanmod | head -10 || true
+        return 1
+    }
+
     info "Устанавливаем: $PKG"
     if DEBIAN_FRONTEND=noninteractive apt-get install -y "$PKG"; then
         ok "XanMod ядро установлено: $PKG"
     else
-        warn "Не удалось, пробуем резервные варианты..."
+        warn "Не удалось установить $PKG, пробуем резервные варианты..."
         INSTALLED=0
-        for ALT in linux-xanmod-x64v2 linux-xanmod-x64v1 linux-xanmod-edge-x64v3 linux-xanmod-edge; do
-            apt-cache search "^$ALT$" | grep -q "$ALT" && \
-            DEBIAN_FRONTEND=noninteractive apt-get install -y "$ALT" && { ok "Установлен: $ALT"; INSTALLED=1; break; }
+        for ALT in "${PKG_CANDIDATES[@]}"; do
+            [[ "$ALT" == "$PKG" ]] && continue
+            if apt-cache show "$ALT" > /dev/null 2>&1; then
+                info "Пробуем резервный вариант: $ALT..."
+                if DEBIAN_FRONTEND=noninteractive apt-get install -y "$ALT"; then
+                    ok "Установлен резервный вариант: $ALT"
+                    INSTALLED=1
+                    break
+                fi
+            fi
         done
         [[ $INSTALLED -eq 0 ]] && { err "Не удалось установить XanMod"; return 1; }
     fi
